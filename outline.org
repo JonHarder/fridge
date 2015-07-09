@@ -3,10 +3,11 @@
 *** name
 *** number in stock
 *** expr date (maybe)
+*** atomic unit of stock, can add and remove from stock
 ** Recipe
 *** set of ingredients
 *** takes set of n number of ingredients
-*** atomic unit by which you can add, subtract from stock
+*** complex unit by which you can add, subtract from stock
 ** Stock
 *** comprised of Ingredients
 *** could query to determine which recipes you could make
