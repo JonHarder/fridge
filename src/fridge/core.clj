@@ -1,103 +1,83 @@
 (ns fridge.core
   (:gen-class))
 
+; There are two basic units of this module: the "ammount" which has
+; both units and number
+; and ingredient which has a name, and ammount
+
 (defn make-ingredient
   [name unit number]
   {:pre [(number? number)
          (keyword? unit)]}
-  {:name (keyword name) :units (keyword unit) :number number})
+  [(keyword name) (keyword unit) number])
 
-(defn- get-units
-  [ingredient]
-  {:units (:units ingredient) :number (:number ingredient)})
+(defn i-name
+  [i]
+  (first i))
 
-(defn- update-units
-  [ingredient unit-map]
-  "updates the ingredients :units and :number values to that of
-   unit-map, throwing out its own"
-  (let [units (:units unit-map)
-        number (:number unit-map)]
-    (-> ingredient
-       (assoc :units units)
-       (assoc :number number))))
+(defn- i-units
+  [i]
+  (if (= (count i) 3)
+    (second i)
+    (first i)))
 
-(defn- convert-to
-  [unit-map unit]
-  "takes an map of {:units unit :number number}
-   and a unit keyword ex. :lbs, :ounces, :cans
-   and returns a new map for ingredient converted to
-   the unit specified
-   ex. (convert-units {:units :mililiter :number 500} :liter) -> {:units :liter :number 0.5}"
+(defn- i-number
+  [i]
+  (if (= (count i) 3)
+    (second (rest i))
+    (second i)))
+
+(defn fmap
+  [ingredient func]
+  (make-ingredient (i-name ingredient) (i-units ingredient) (func (i-number ingredient))))
+;;; everything above is the api used for working with ingredients
+;;; everything below should use these for interacting with them
+;;; the internal implimentation of ingredient should not need to be known
+(defn in-stock?
+  [ingredient stock]
+  (not (= nil ((i-name ingredient) stock))))
+
+(defn convert-to
+  [ingredient units]
+  "takes an ingredient and a unit to convert it to"
   (let [converter {:mililiters {:liters     #(/ % 1000)}
-                   :liters     {:mililiters #(* % 1000)}}
-        from (:units unit-map)
-        to unit
-        func (some-> converter
-                     from
-                     to)]
+                   :liters     {:mililiters #(* % 1000)}
+                   :ounces     {:pounds     #(/ % 16)}
+                   :pounds     {:ounces     #(* % 16)}}
+        conversion-map (some-> ingredient
+                               i-units
+                               converter)
+        func (some-> units conversion-map)]
     (if func
-      (let [new-number (func (:number unit-map))]
-        (update-units unit-map {:units to :number new-number}))
-      unit-map)))
-
-(defmacro infix
-  [proc]
-  (list (second proc)
-        (first proc)
-        (second (rest proc))))
-
-(defn- in
-  [key col]
-  (not (= (key col) nil)))
-
-(defn- insert-ingredient
-  [stock ingredient]
-  "takes a map of maps of form {:ingredient-name {:unit unit :number number}}
-   and an ingredient of the form {:name name :unit unit :number number}"
-  (let [name (:name ingredient)
-        val (dissoc ingredient :name)]
-    (assoc stock name val)))
+      (fmap ingredient func)
+      ingredient)))
 
 
-(defn- add-units
-  [unit1 unit2]
-  "add two maps of form {:units unit :number number} together,
-   converting unit2 to the units of unit1, altering it's number
-   accordingly"
-  (let [units (:units unit1)
-        converted (convert-to unit2 (:units unit1))]
-    {:units units
-     :number (+ (:number unit1)
-                (:number converted))}))
+(defn add-units
+  [i1 i2]
+  "takes two ingredients, converts the second's ammount to the units
+   of the first, and returns the ammount"
+  (let [i2-converted (convert-to i2 (i-units i1))]
+    (+ (i-number i1) (i-number i2-converted))))
 
-(defn- add-ingredients
-  [ingredient1 ingredient2]
-  "adds the ingredients together, so units and number reflects
-   the units of the first ingredient and the number of the sum
-   of ingredient1 and ingredient 2."
-  (assert (= (:name ingredient1)
-             (:name ingredient2))
-          "Cannot add disparate ingredients")
-  (let [unit1 (get-units ingredient1)
-        unit2 (get-units ingredient2)
-        converted-units (add-units unit1 unit2)]
-    (update-units ingredient1 converted-units)))
+(defn add-ingredients
+  [i1 i2]
+  "adds two ingredients together, converting units to unify types"
+  {:pre (= (i-name i1) (i-name i2))}
+  (let [name (i-name i1)
+        units (i-units i1)
+        number (add-units i1 i2)]
+  (make-ingredient name units number)))
 
 (defn add-ingredient-to-stock
   [stock ingredient]
-  "takes a ref to a stock {:food-name {:units unit :number number}}
-   and an ingredient {:name name :units unit :number number}
-   and adds it to the stock ref, making a new entry if none of that
-   ingredient were previously present or adding the ingredient to
-   the supply previously there (converting to the units provided"
-  (println (str "Adding " (:number ingredient) " " (name (:units ingredient))
-                " of " (name (:name ingredient))))
   (dosync
-   (let [name (:name ingredient)
-         current (assoc (name @stock) :name name)]
-     (if (infix (name in @stock))
-       (alter stock insert-ingredient (add-ingredients current ingredient))
-       (alter stock insert-ingredient ingredient)))))
+   (let [name (i-name ingredient)]
+     (if (in-stock? ingredient @stock)
+       (let [current (name @stock)]
+         (alter stock assoc name (add-ingredients current ingredient)))
+       (alter stock assoc name ingredient)))))
+
 
 (def stock (ref {}))
 
@@ -105,6 +85,8 @@
   "I don't do a whole lot ... yet."
   [& args]
   (let [ing1 (make-ingredient "cheese" :ounces 3)
-        ing2 (make-ingredient "cheese" :ounces 10)]
+        ing2 (make-ingredient "cheese" :ounces 10)
+        ing3 (make-ingredient "sugar" :liters 3)]
     (add-ingredient-to-stock stock ing1)
-    (add-ingredient-to-stock stock ing2)))
+    (add-ingredient-to-stock stock ing2)
+    (add-ingredient-to-stock stock ing3)))
